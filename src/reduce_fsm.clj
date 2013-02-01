@@ -631,27 +631,26 @@ See https://github.com/cdorrat/reduce-fsm for examples and documentation"
                        (or (get (-> state :params) :is-terminal false)
                            (= \( (-> state :name first))))]
     [(:state state)
-     (if is-terminal?       
-       {:label (:name state)
-        :style "filled,setlinewidth(2)"
-        :fillcolor "grey88"
-        }
-       {:label (:name state)})
+     (let [node-attrs {:label (:name state) :shape :box}]
+       (if is-terminal?       
+         (assoc node-attrs
+                :style "filled,setlinewidth(2)"
+                :fillcolor "grey88")
+         node-attrs))
      ]))
 
 (defn- transitions-for-state
   "return a sequence of dortothy transitions for a single state"
   [state]
   (letfn [(transition-label [trans idx]
-			    (str
-			     (format "<TABLE BORDER=\"0\"><TR><TD TITLE=\"priority = %d\">%s</TD></TR>" idx (:evt trans) )
-			     (when (:action trans)
-			       (format "<TR><TD>(%s)</TD></TR>" (:action trans)))
-			     (when (:emit trans)
-			       (format "<TR><TD>(%s) -&gt;</TD></TR>" (:emit trans)))
-			     "</TABLE>"))
-	  (format-trans [trans idx]
-			[(:from-state trans) (:to-state trans) {:label (transition-label trans idx)} ])]
+                            (str
+                              (:evt trans)
+                              (when (:action trans)
+                                (str "\\n(" (:action trans) ")"))
+                              (when (:emit trans)
+                                (str "\\n("  (:emit trans) ") =>"))))
+          (format-trans [trans idx]
+                        [(:from-state trans) (:to-state trans) {:label (transition-label trans idx) } ])]
     (map format-trans (:transitions state) (range (count (:transitions state))))))
 
 (defn fsm-dorothy
@@ -662,6 +661,7 @@ See https://github.com/cdorrat/reduce-fsm for examples and documentation"
         fsm-type (->> fsm meta :reduce-fsm/fsm-type)]
     (d/digraph 
       (concat
+        [{:splines :spline}]
         [[start-state {:label "start" :style :filled :color :black :shape "point" :width "0.2" :height "0.2"}]]
         (map (partial dorothy-state fsm-type) state-map)
         [[start-state (-> state-map first :state)]]
