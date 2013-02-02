@@ -631,7 +631,8 @@ See https://github.com/cdorrat/reduce-fsm for examples and documentation"
                        (or (get (-> state :params) :is-terminal false)
                            (= \( (-> state :name first))))]
     [(:state state)
-     (let [node-attrs {:label (:name state) :shape :box}]
+     (let [label (:name state)
+           node-attrs {:label label :shape :box}]
        (if is-terminal?       
          (assoc node-attrs
                 :style "filled,setlinewidth(2)"
