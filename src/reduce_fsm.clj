@@ -152,17 +152,16 @@ Parameters:
   "define the function used to represent a single state internally"
   [dispatch-type state-fn-map state-params state]
   (let [this-state-fn  (state-fn-map (:from-state state))
-	events (gensym "events")
-	acc (gensym "acc")
-	evt (gensym "evt")]
+        events (gensym "events")
+        acc (gensym "acc")
+        evt (gensym "evt")]
     `(~this-state-fn
-      [~acc ~events]
-      (if-let [~evt (first ~events)] 
-	#(~@(expand-dispatch dispatch-type evt acc)
-		~@(mapcat (partial expand-evt-dispatch state-fn-map state-params (:from-state state)  evt acc events) (:transitions state))
-		:else (~this-state-fn ~acc (rest ~events))
-		)
-	~acc))))
+       [~acc ~events]
+       (if-let [~evt (first ~events)] 
+         #(~@(expand-dispatch dispatch-type evt acc)
+            ~@(mapcat (partial expand-evt-dispatch state-fn-map state-params (:from-state state)  evt acc events) (:transitions state))
+            :else (~this-state-fn ~acc (rest ~events)))
+         ~acc))))
   
 
 (defn- transitions-metadata
@@ -180,9 +179,7 @@ Parameters:
   "create the metadata representation for a single state"
   [state]	 
   {:state  (keyword (:from-state state))
-   :name (if (fsm-fn? (:from-state state))
-		  (str "(" (:from-state state) ")")
-		  (str (:from-state state)))
+   :name (str (:from-state state))
    :params (:state-params state)
    :transitions  (vec (transitions-metadata state))
    })
@@ -433,21 +430,20 @@ Example:
   (when f
     (loop [[emitted next-step] (f)]
       (if next-step
-	(if (not= ::no-event emitted)
-	  [emitted next-step]
-	  (recur (next-step)))
-	[emitted nil]))))
+        (if (not= ::no-event emitted)
+          [emitted next-step]
+          (recur (next-step)))
+        [emitted nil]))))
 
 (defn ^{:skip-wiki true} fsm-seq-impl*
   "Create a lazy sequence from a fsm-seq state function" 
   [f]
-  (let [[emitted next-step] (next-emitted f)]
-    (lazy-seq
-     (if next-step
-       (cons emitted (fsm-seq-impl* next-step))
-       (when (not= ::no-event emitted)
-	 (cons emitted nil))))))
-
+  (let [step (fn [[emitted next-step]]
+               (if next-step
+                 (cons emitted (fsm-seq-impl* next-step))
+                 (when (not= ::no-event emitted)
+                   (cons emitted nil))))]
+    (lazy-seq (step (next-emitted f)))))
 
 (defn- expand-seq-evt-dispatch
   "Expand the dispatch line for a single fsm-seq dipatch line.
@@ -470,15 +466,14 @@ Example:
   "Expand the definition of a function to handle a single state"
   [dispatch-type state-fn-map state-params state]
   (let [this-state-fn  (state-fn-map (:from-state state))
-	acc (gensym "acc")
-	evt (gensym "evt")] 
+        acc (gensym "acc")
+        evt (gensym "evt")] 
     `(~this-state-fn
-      [~acc ~evt]
-      (when (seq ~evt)
-	#(~@(expand-dispatch dispatch-type `(first ~evt) acc)
-	 ~@(mapcat (partial expand-seq-evt-dispatch state-fn-map state-params (:from-state state) evt acc) (:transitions state))
-	 :else [::no-event (~this-state-fn ~acc (rest ~evt))]
-	)))))
+       [~acc ~evt]
+       (when (and (seq ~evt) (not (get-in ~state [:state-params :is-terminal])))
+         #(~@(expand-dispatch dispatch-type `(first ~evt) acc)
+            ~@(mapcat (partial expand-seq-evt-dispatch state-fn-map state-params (:from-state state) evt acc) (:transitions state))
+            :else [::no-event (~this-state-fn ~acc (rest ~evt))])))))
 
 ;;===================================================================================================
 ;; We want to turn an fsm-seq definition looking like this:
@@ -575,12 +570,12 @@ See https://github.com/cdorrat/reduce-fsm for examples and documentation"
 	state-fn-map (zipmap (map :from-state state-maps) state-fn-names)] ;; map of state -> letfn function name
     `(letfn [~@(map #(state-seq-fn-impl dispatch state-fn-map state-params %) state-maps)]
        (with-meta
-	 (fn fsm-seq-fn#
-	   ([events#] (fsm-seq-fn# ~default-acc events#))
-	   ([acc# events#]
-	      (when (seq events#)
-		(fsm-seq-impl* (~(first state-fn-names) acc# events#)))))
-	 ~(fsm-metadata :fsm-seq state-maps)))))
+         (fn fsm-seq-fn#
+           ([events#] (fsm-seq-fn# ~default-acc events#))
+           ([acc# events#]
+             (when (seq events#)
+               (fsm-seq-impl* (~(first state-fn-names) acc# events#)))))
+         ~(fsm-metadata :fsm-seq state-maps)))))
 
 (defmacro defsm-seq
   "A convenience macro to define an fsm sequence, equivalent to (def fsm-name (fsm-seq states opts)
@@ -635,8 +630,7 @@ See https://github.com/cdorrat/reduce-fsm for examples and documentation"
   [fsm-type state]
   (let [is-terminal? (if (= :fsm-filter fsm-type)
                        (not (get (-> state :params) :pass true))
-                       (or (get (-> state :params) :is-terminal false)
-                           (= \( (-> state :name first))))]
+                       (get (-> state :params) :is-terminal false))]
     [(:state state)
      (let [state-name (:name state)
            label (remove-leading-colon state-name)
@@ -690,7 +684,6 @@ See https://github.com/cdorrat/reduce-fsm for examples and documentation"
   (when (graphviz-installed?)
     (show-dorothy-fsm fsm)))
   
-
 (defn save-fsm-image
     "Save the state transition diagram for an fsm as a png.
 Expects the following parameters:
@@ -700,4 +693,3 @@ Expects the following parameters:
   (when (graphviz-installed?)
     (d/save! (fsm-dot fsm) filename {:format :png}))
   nil)
-
