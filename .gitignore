@@ -10,3 +10,4 @@ multi-lib/**
 /classes
 /.classpath
 /.project
+/.settings

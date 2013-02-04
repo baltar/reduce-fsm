@@ -623,6 +623,13 @@ See https://github.com/cdorrat/reduce-fsm for examples and documentation"
     (vector from-state (:to-state trans) {:label label} )
     ))
 
+(defn- remove-leading-colon [string-or-keyword]
+  (if (keyword? string-or-keyword)
+    (name string-or-keyword)
+    (if (string? string-or-keyword)
+      (if (= \: (first string-or-keyword)) (subs string-or-keyword 1) string-or-keyword)
+      string-or-keyword)))
+  
 (defn- dorothy-state
   "Create a single dorothy state"
   [fsm-type state]
@@ -631,7 +638,8 @@ See https://github.com/cdorrat/reduce-fsm for examples and documentation"
                        (or (get (-> state :params) :is-terminal false)
                            (= \( (-> state :name first))))]
     [(:state state)
-     (let [label (:name state)
+     (let [state-name (:name state)
+           label (remove-leading-colon state-name)
            node-attrs {:label label :shape :box}]
        (if is-terminal?       
          (assoc node-attrs
@@ -645,11 +653,11 @@ See https://github.com/cdorrat/reduce-fsm for examples and documentation"
   [state]
   (letfn [(transition-label [trans idx]
                             (str
-                              (:evt trans)
+                              (remove-leading-colon (:evt trans))
                               (when (:action trans)
                                 (str "\\n(" (:action trans) ")"))
                               (when (:emit trans)
-                                (str "\\n("  (:emit trans) ") =>"))))
+                                (str "\\n("  (:emit trans) ") \u2192"))))
           (format-trans [trans idx]
                         [(:from-state trans) (:to-state trans) {:label (transition-label trans idx) } ])]
     (map format-trans (:transitions state) (range (count (:transitions state))))))
