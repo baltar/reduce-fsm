@@ -467,13 +467,13 @@ Example:
   [dispatch-type state-fn-map state-params state]
   (let [this-state-fn  (state-fn-map (:from-state state))
         acc (gensym "acc")
-        evt (gensym "evt")] 
+        evt (gensym "evt")]
     `(~this-state-fn
-       [~acc ~evt]
-       (when (and (seq ~evt) (not (get-in ~state [:state-params :is-terminal])))
-         #(~@(expand-dispatch dispatch-type `(first ~evt) acc)
-            ~@(mapcat (partial expand-seq-evt-dispatch state-fn-map state-params (:from-state state) evt acc) (:transitions state))
-            :else [::no-event (~this-state-fn ~acc (rest ~evt))])))))
+         [~acc ~evt]
+         (when (and (seq ~evt) (not (get-in ~state [:state-params :is-terminal])))
+           #(~@(expand-dispatch dispatch-type `(first ~evt) acc)
+              ~@(mapcat (partial expand-seq-evt-dispatch state-fn-map state-params (:from-state state) evt acc) (:transitions state))
+              :else [::no-event (~this-state-fn ~acc (rest ~evt))])))))
 
 ;;===================================================================================================
 ;; We want to turn an fsm-seq definition looking like this:
