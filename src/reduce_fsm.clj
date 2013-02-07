@@ -642,25 +642,44 @@ See https://github.com/cdorrat/reduce-fsm for examples and documentation"
          node-attrs))
      ]))
 
+(defn default-trans-label
+  [trans]
+  (str
+    (if (contains? trans :label)
+      (:label trans)
+      (remove-leading-colon (:evt trans)))))
+  
+(defn default-action-label
+  [trans]
+  (if (:action trans)
+    (str "\\n(" (:action trans) ")")
+    ""))
+
+(defn default-emit-label
+  [trans]
+  (if (:emit trans)
+    (str "\\n("  (:emit trans) ") \u2192")
+    ""))
+
 (defn- transitions-for-state
   "return a sequence of dortothy transitions for a single state"
-  [state]
+  [state 
+   & {:keys [trans-label-fn action-label-fn emit-label-fn] 
+      :or {trans-label-fn default-trans-label
+           action-label-fn default-action-label
+           emit-label-fn default-emit-label}}]
   (letfn [(transition-label [trans idx]
-                            (str
-                              (if (contains? trans :label)
-                                (:label trans)
-                                (remove-leading-colon (:evt trans)))
-                              (when (:action trans)
-                                (str "\\n(" (:action trans) ")"))
-                              (when (:emit trans)
-                                (str "\\n("  (:emit trans) ") \u2192"))))
+                            (str 
+                              (trans-label-fn trans)
+                              (action-label-fn trans)
+                              (emit-label-fn trans)))
           (format-trans [trans idx]
                         [(:from-state trans) (:to-state trans) {:label (transition-label trans idx) } ])]
     (map format-trans (:transitions state) (range (count (:transitions state))))))
 
 (defn fsm-dorothy
   "Create a dorothy digraph definition for an fsm"
-  [fsm]
+  [fsm & opts]
   (let [start-state (keyword (gensym "start-state"))
         state-map (->> fsm meta :reduce-fsm/states)
         fsm-type (->> fsm meta :reduce-fsm/fsm-type)]
@@ -670,28 +689,33 @@ See https://github.com/cdorrat/reduce-fsm for examples and documentation"
         [[start-state {:label "start" :style :filled :color :black :shape "point" :width "0.2" :height "0.2"}]]
         (map (partial dorothy-state fsm-type) state-map)
         [[start-state (-> state-map first :state)]]
-        (mapcat transitions-for-state state-map)))))
+        (mapcat #(apply transitions-for-state % opts) state-map)))))
 
 (defn fsm-dot
   "Create the graphviz dot output for an fsm"
-  [fsm]
-    (d/dot (fsm-dorothy fsm)))
+  [fsm & opts]
+    (d/dot (apply fsm-dorothy fsm opts)))
 
-(defn- show-dorothy-fsm [fsm]
-  (d/show! (fsm-dot fsm)))
+(defn- show-dorothy-fsm [fsm & opts]
+  (d/show! (apply fsm-dot fsm opts)))
 
 (defn show-fsm
   "Display the fsm as a diagram using graphviz (see http://www.graphviz.org/)"
-  [fsm]
+  [fsm & opts]
   (when (graphviz-installed?)
-    (show-dorothy-fsm fsm)))
+    (apply show-dorothy-fsm fsm opts)))
   
 (defn save-fsm-image
     "Save the state transition diagram for an fsm as a png.
 Expects the following parameters:
   - fsm      - the fsm to render
   - filename - the output file for the png." 
-  [fsm filename]
+  [fsm filename & opts]
   (when (graphviz-installed?)
-    (d/save! (fsm-dot fsm) filename {:format :png}))
+    (d/save! (apply fsm-dot fsm opts) filename {:format :png}))
   nil)
+
+(defn save-fsm-dot
+  [fsm filename & opts]
+  (when (graphviz-installed?)
+    (spit filename (apply fsm-dot fsm opts))))
