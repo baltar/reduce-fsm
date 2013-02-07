@@ -51,7 +51,7 @@ This package allows you to:
 	  (report-compile-warning "The state %s is not the initial state and is unreachable by any transitions" state))))
     
     ;; check for unexpected keys in transition properties
-    (let [user-keys #{:emit :action}
+    (let [user-keys #{:label :emit :action}
 	  expected-keys (into #{:from-state :to-state :evt} user-keys)]      
       (doseq [t transitions]
 	(let [xtra-keys (set/difference (-> t keys set) expected-keys)]
@@ -647,7 +647,9 @@ See https://github.com/cdorrat/reduce-fsm for examples and documentation"
   [state]
   (letfn [(transition-label [trans idx]
                             (str
-                              (remove-leading-colon (:evt trans))
+                              (if (contains? trans :label)
+                                (:label trans)
+                                (remove-leading-colon (:evt trans)))
                               (when (:action trans)
                                 (str "\\n(" (:action trans) ")"))
                               (when (:emit trans)
