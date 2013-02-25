@@ -51,7 +51,7 @@ This package allows you to:
 	  (report-compile-warning "The state %s is not the initial state and is unreachable by any transitions" state))))
     
     ;; check for unexpected keys in transition properties
-    (let [user-keys #{:label :emit :action}
+    (let [user-keys #{:emit :action :node-opts :in-opts :out-opts}
 	  expected-keys (into #{:from-state :to-state :evt} user-keys)]      
       (doseq [t transitions]
 	(let [xtra-keys (set/difference (-> t keys set) expected-keys)]
@@ -60,7 +60,7 @@ This package allows you to:
 				    xtra-keys (:from-state t) user-keys)))))
     
     ;; check for unexpected keys in state params
-    (let [expected-keys #{:pass :is-terminal}]
+    (let [expected-keys #{:pass :is-terminal :node-opts}]
       (doseq [s state-maps]	
 	(let [xtra-keys (set/difference (-> s :state-params keys set) expected-keys)]
 	  (when-not (empty? xtra-keys)
@@ -625,71 +625,141 @@ See https://github.com/cdorrat/reduce-fsm for examples and documentation"
       (if (= \: (first string-or-keyword)) (subs string-or-keyword 1) string-or-keyword)
       string-or-keyword)))
   
+(defn default-state-label
+  [state]
+  (->
+    (:name state)
+    (remove-leading-colon)))
+
 (defn- dorothy-state
   "Create a single dorothy state"
-  [fsm-type state]
+  [fsm-type state & {:keys [state-label-fn state-node-opts terminal-node-opts] 
+                     :or {state-label-fn default-state-label
+                          state-node-opts nil 
+                          terminal-node-opts nil}}]
   (let [is-terminal? (if (= :fsm-filter fsm-type)
                        (not (get (-> state :params) :pass true))
                        (get (-> state :params) :is-terminal false))]
     [(:state state)
-     (let [state-name (:name state)
-           label (remove-leading-colon state-name)
+     (let [label (state-label-fn state)
            node-attrs {:label label :shape :box}]
-       (if is-terminal?       
-         (assoc node-attrs
-                :style "filled,setlinewidth(2)"
-                :fillcolor "grey88")
-         node-attrs))
-     ]))
+       (merge 
+         node-attrs         
+         state-node-opts
+         (when is-terminal? terminal-node-opts)
+         (get-in state [:params :node-opts])))]))
 
-(defn default-trans-label
+(defn default-event-label
   [trans]
   (str
-    (if (contains? trans :label)
-      (:label trans)
+    (if-let [label (get-in trans [:node-opts :label])]
+      label
       (remove-leading-colon (:evt trans)))))
-  
+
 (defn default-action-label
-  [trans]
-  (if (:action trans)
-    (str "\\n(" (:action trans) ")")
-    ""))
+  [transition]
+  (if (:action transition)
+    (str (:action transition))
+    "<do nothing>"))
 
 (defn default-emit-label
   [trans]
   (if (:emit trans)
-    (str "\\n("  (:emit trans) ") \u2192")
+    (str "("  (:emit trans) ") \u2192")
     ""))
+
+(defn transition-node-name
+  [transition]
+  (when-let [action (:action transition)]
+    (str action)))
+
+(defn create-transition-nodes
+  "Creates nodes for each action in every transition of given state."
+  [fsm-type state & {:keys [action-label-fn action-node-opts] 
+                     :or {action-label-fn default-action-label
+                          action-node-opts nil}}]
+  (let [create-node (fn [transition]
+                      [(transition-node-name transition) (merge {:label (action-label-fn transition)} action-node-opts (:node-opts transition))])]
+    (map create-node 
+         (->> (:transitions state) (filter :action)))))
 
 (defn- transitions-for-state
   "return a sequence of dortothy transitions for a single state"
-  [state 
-   & {:keys [trans-label-fn action-label-fn emit-label-fn] 
-      :or {trans-label-fn default-trans-label
-           action-label-fn default-action-label
-           emit-label-fn default-emit-label}}]
+  [state & {:keys [event-label-fn emit-label-fn] 
+            :or {event-label-fn default-event-label
+                 emit-label-fn default-emit-label}}]
   (letfn [(transition-label [trans idx]
                             (str 
-                              (trans-label-fn trans)
-                              (action-label-fn trans)
+                              (event-label-fn trans)
                               (emit-label-fn trans)))
           (format-trans [trans idx]
-                        [(:from-state trans) (:to-state trans) {:label (transition-label trans idx) } ])]
-    (map format-trans (:transitions state) (range (count (:transitions state))))))
+                        (let [weight (str (- 100 (* idx (int (/ 100 (count (:transitions state)))))))] 
+                          (if-let [trans-node-name (transition-node-name trans)]
+                            [[(:from-state trans) trans-node-name (merge {:label (event-label-fn trans)} (:in-opts trans))]
+                             [trans-node-name (:to-state trans) (merge {:label (emit-label-fn trans) :weight weight} (:out-opts trans))]]
+                            [[(:from-state trans) (:to-state trans) 
+                              (merge {:label (-> (event-label-fn trans) (str "\n") (str (emit-label-fn trans)) (str/trim-newline))
+                                      :weight weight} 
+                                     (:out-opts trans))]])))]
+    (mapcat format-trans (:transitions state) (range (count (:transitions state))))))
+
+(defn remove-duplicate-edges
+  [edges]
+  (->>
+    edges
+    (map (fn [[from to & rest :as edge]] {[from to] edge}))
+    (reverse)
+    (apply merge)
+    (vals)))         
 
 (defn fsm-dorothy
   "Create a dorothy digraph definition for an fsm"
   [fsm & opts]
-  (let [start-state (keyword (gensym "start-state"))
+  (let [start-node (keyword (gensym "start-node"))
         state-map (->> fsm meta :reduce-fsm/states)
         fsm-type (->> fsm meta :reduce-fsm/fsm-type)]
     (d/digraph 
       (concat
-        [{:splines :spline}]
-        [[start-state {:label "start" :style :filled :color :black :shape "point" :width "0.2" :height "0.2"}]]
-        (map (partial dorothy-state fsm-type) state-map)
-        [[start-state (-> state-map first :state)]]
-        (mapcat #(apply transitions-for-state % opts) state-map)))))
+        [[start-node {:style :invis :shape :point :width "0.01" :height "0.01"}]]
+        (map #(apply dorothy-state fsm-type % opts) state-map)
+        (mapcat #(apply create-transition-nodes fsm-type % opts) state-map)
+        [[start-node (-> state-map first :state)]]
+        (remove-duplicate-edges (mapcat #(apply transitions-for-state % opts) state-map))))))
+
+
+(defn create-transition-edges
+  "For each action in every transition of given state, make an edge from its node to the node of
+each action of all transitions of its to-state. If there are more than one transitions in to-state, 
+label edges with their events."
+  ([fsm-type state-map state]
+    (mapcat (partial create-transition-edges state-map)(:transitions state)))
+  ([state-map transition]
+    (let [follow-up-transitions (->> 
+                                  state-map
+                                  (filter #(= (:state %) (:to-state transition)))
+                                  first
+                                  (:transitions))
+          label? (> (count follow-up-transitions) 1) 
+          create-edge (fn [follow-up-transition] 
+                        [(transition-node-name transition) (transition-node-name follow-up-transition) 
+                         {:label (if label? (:evt follow-up-transition) "")}])]
+      (map create-edge follow-up-transitions))))
+
+
+(defn fsm-dorothy-activity
+  "Create a dorothy activity digraph definition from an fsm"
+  [fsm & opts]
+  (let [start-node (keyword (gensym "start-node"))
+        state-map (->> fsm meta :reduce-fsm/states)
+        fsm-type (->> fsm meta :reduce-fsm/fsm-type)
+        nodes (mapcat (partial create-transition-nodes fsm-type) state-map)]
+    (d/digraph
+      (concat
+        [[start-node {:style :invis :shape :point :width "0.01" :height "0.01"}]]
+        nodes
+        [[start-node (ffirst nodes)]]
+        (mapcat (partial create-transition-edges fsm-type state-map) state-map)))))
+
 
 (defn fsm-dot
   "Create the graphviz dot output for an fsm"

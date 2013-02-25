@@ -1,7 +1,7 @@
 
 (defproject reduce-fsm "0.1.0.baltar-SNAPSHOT"
   :description "Clojure finite state machines"
-  :dependencies [[org.clojure/clojure "1.3.0"]
+  :dependencies [[org.clojure/clojure "1.4.0"]
 		 [dorothy "0.0.2"]
 		 [match "0.2.0-SNAPSHOT"]]
   :dev-dependencies [[swank-clojure "1.3.3"]
